@@ -1,0 +1,8 @@
+--- 
+:botname: bot2@haruhi.local/deploy2
+:channel: test@conference.haruhi.local
+:logfile: test.log
+:password: password
+:loglevel: 1
+:admins:
+    - Scott Lillibridge

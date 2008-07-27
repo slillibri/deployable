@@ -27,11 +27,12 @@ module Deployable
     end
     
     def run
-      muc = self.mucSetup
-      puts muc.class
-      
       EM.run do
-      
+        muc = self.mucSetup
+        @logger.debug("Spawn new MUC client")
+        EM::PeriodicTimer.new(5) do
+          muc.say('Still alive')
+        end
       end
     end
   
@@ -73,8 +74,6 @@ module Deployable
       }
 
       muc.join("#{@channel}/#{client.jid.resource}")
-      muc
-      
     end
   end
 end

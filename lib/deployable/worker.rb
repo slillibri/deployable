@@ -16,6 +16,11 @@ module Deployable
     def method_missing
       set_deferred_status :failed, {:message => 'No such task'}
     end
+
+    def list_tasks
+      methods = [Object.public_methods].flatten
+      self.public_methods.reject {|each| methods.include?(each)}
+    end
     
     def lift *args
       30.times do |i|

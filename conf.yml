@@ -1,8 +1,10 @@
 --- 
 :botname: bot@haruhi.local/deploy
+:host: haruhi.local
 :channel: test@conference.haruhi.local
 :logfile: test.log
 :password: password
 :loglevel: 1
 :admins:
     - Scott Lillibridge
+:debug: true

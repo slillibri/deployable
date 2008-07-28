@@ -10,10 +10,12 @@ module Deployable
     def initialize (*args)
       @logger = Log4r::Logger.new "workerlog"
       @logger.outputters = Log4r::FileOutputter.new("workerlog", :filename => 'worker.log', :trunc => false)
+      @logger.trace = true
       @logger.level = DEBUG
     end
     
-    def method_missing
+    def method_missing method
+      @logger.debug "No method #{method}"
       set_deferred_status :failed, {:message => 'No such task'}
     end
 
@@ -29,10 +31,10 @@ module Deployable
       end
       set_deferred_status :succeeded, {:message => 'Lift successful'}
     end
-  
+
     def fetch *args
       url = args.shift
-  
+
       begin
         @logger.debug "Starting to test #{url[0]}"
         res = Net::HTTP.start(url[0],80) {|http|

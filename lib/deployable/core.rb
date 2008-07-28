@@ -4,12 +4,13 @@ require 'eventmachine'
 require 'log4r'
 require 'deployable/worker'
 require 'yaml'
+require 'pp'
 
 include Jabber
 include Log4r
 module Deployable
   class Core
-    attr_accessor :botname, :password, :channel, :logfile, :loglevel, :hbconf, :logger, :admins
+    attr_accessor :botname, :password, :channel, :logfile, :loglevel, :logger, :admins, :debug, :muc, :host
 
     def initialize(args = Hash.new)
       begin
@@ -19,7 +20,11 @@ module Deployable
         }
         @logger = Log4r::Logger.new "deploy"
         @logger.outputters = Log4r::FileOutputter.new("deploy", :filename => self.logfile, :trunc => false)
+        @logger.trace = true
         @logger.level = self.loglevel
+        if(@debug == true) 
+          Jabber.debug = true
+        end
       rescue Exception => e
         puts "There was an exception #{e}"
         nil
@@ -28,51 +33,58 @@ module Deployable
     
     def run
       EM.run do
-        muc = self.mucSetup
+        @muc = self.mucSetup
         @logger.debug("Spawn new MUC client")
-        EM::PeriodicTimer.new(5) do
-          muc.say('Still alive')
-        end
       end
+    end
+
+    def send_msg to, text
+      message = Message.new(nil, text)
+      message.type = :normal
+      @muc.send(message,to)
     end
   
     def mucSetup
+      begin
       client = Client.new(JID.new(@botname))
-      client.connect
+      client.connect(@host)
       client.auth(@password)
       pres = Presence.new
       pres.priority = 5
       client.send(pres)
       
-      muc = MUC::SimpleMUCClient.new(client)
-      muc.on_message {|time,nick,text|
-        @logger.debug "Received message #{text} from #{nick}"
-        # Only admins can talk to me to prevent looping
-        if admins.include?(nick)          
-          args = text.split(' ')
-          command = args.shift
-          @logger.debug "#{command} : #{args}"
-          worker = Deployable::Worker.new
-          worker.callback {|code| muc.say("#{code[:code]} #{code[:message]}")}
-          worker.errback {|code| muc.say("#{code[:code]} #{code[:message]}")}
-          worker.send(command,args)
+      client.on_exception do |ex, stream, symb|
+        @logger.debug("Disconnected, #{ex}, #{symb}")
+        while (! stream.is_connected?)
+          @logger.debug("Reconnecting")
+          stream.connect
+          stream.auth(@password)
+        end
+        end
+      rescue
+        @logger.debug("Retrying in 10 seconds")
+        sleep(10)
+        retry
+      end
+      muc = MUC::MUCClient.new(client)
+      muc.add_message_callback { |msg|
+        if @admins.include?(msg.from.resource)
+          begin
+            stanza = msg.body
+            atoms = stanza.split(' ')
+            command = atoms.shift
+            @logger.debug("calling #{command} : #{atoms.to_s}")
+            worker = Worker.new
+            worker.callback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
+            worker.errback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
+            worker.send(command, atoms)
+          rescue
+            @logger.debug "Error calling #{command} #{$!}"
+          end
+        else
+          @logger.debug "I don't take orders from you #{msg.from.resource}"
         end
       }
-
-      muc.on_private_message {|time,nick,text|
-        # Only admins can talk to me to prevent looping
-        if admins.include?(nick)
-          @logger.debug "Received private message #{text} from #{nick}"
-          args = text.split(' ')
-          command = args.shift
-          @logger.debug "#{command} : #{args}"
-          worker = Deployable::Worker.new
-          worker.callback {|code| muc.say("#{code[:code]} #{code[:message]}")}
-          worker.errback {|code| muc.say("#{code[:code]} #{code[:message]}")}
-          worker.send(command,args)
-        end
-      }
-
       muc.join("#{@channel}/#{client.jid.resource}")
     end
   end

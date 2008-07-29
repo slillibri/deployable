@@ -10,8 +10,10 @@ include Jabber
 include Log4r
 module Deployable
   class Core
-    attr_accessor :botname, :password, :channel, :logfile, :loglevel, :logger, :admins, :debug, :muc, :host
-
+    ## These are are all autoloaded by the YAML config file
+    attr_accessor :botname, :password, :channel, :logfile, :loglevel
+    attr_accessor :logger, :admins, :debug, :muc, :host, :workers
+    
     def initialize(args = Hash.new)
       begin
         conf = YAML.load(File.open(args[:config]))
@@ -33,7 +35,9 @@ module Deployable
     
     def run
       EM.run do
-        @muc = self.mucSetup
+        client = clientSetup
+        loadWorkers
+        @muc = self.mucSetup(client)
         @logger.debug("Spawn new MUC client")
       end
     end
@@ -44,8 +48,7 @@ module Deployable
       @muc.send(message,to)
     end
   
-    def mucSetup
-      begin
+    def clientSetup
       client = Client.new(JID.new(@botname))
       client.connect(@host)
       client.auth(@password)
@@ -55,18 +58,23 @@ module Deployable
       
       client.on_exception do |ex, stream, symb|
         @logger.debug("Disconnected, #{ex}, #{symb}")
-        while (! stream.is_connected?)
-          @logger.debug("Reconnecting")
-          stream.connect
-          stream.auth(@password)
-        end
-        end
-      rescue
-        @logger.debug("Retrying in 10 seconds")
-        sleep(10)
-        retry
+        @logger.error("FAIL")
+        exit
       end
+      client
+    end
+    
+    def loadWorkers
+      @workers.each do |command,worker|
+        self.send(:require, "deployable/#{worker}")
+        w = eval("#{worker.capitalize}.new")
+        @workers["#{command}"] = w
+      end      
+    end
+    
+    def mucSetup client
       muc = MUC::MUCClient.new(client)
+      
       muc.add_message_callback { |msg|
         if @admins.include?(msg.from.resource)
           begin
@@ -74,7 +82,7 @@ module Deployable
             atoms = stanza.split(' ')
             command = atoms.shift
             @logger.debug("calling #{command} : #{atoms.to_s}")
-            worker = Worker.new
+            worker = @workers["#{command}"]
             worker.callback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
             worker.errback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
             worker.send(command, atoms)

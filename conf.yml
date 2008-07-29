@@ -8,4 +8,4 @@
 :admins:
     - Scott Lillibridge
 :debug: true
-:workers: {fetch: worker, lift: lifter}
+:workers: {fetch: {:worker: worker, :desc: "Fetch a URL using Net::HTTP"}, lift: {:worker: lifter, :desc: "Lift heavy things"}}

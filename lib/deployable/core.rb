@@ -65,11 +65,19 @@ module Deployable
     end
     
     def loadWorkers
-      @workers.each do |command,worker|
-        self.send(:require, "deployable/#{worker}")
-        w = eval("#{worker.capitalize}.new")
-        @workers["#{command}"] = w
+      @workers.each do |command,worker_spec|
+        self.send(:require, "deployable/#{worker_spec[:worker]}")
+        w = eval("#{worker_spec[:worker].capitalize}.new")
+        @workers["#{command}"] = {:worker => w, :desc => worker_spec[:desc]}
       end      
+    end
+    
+    def listWorkers
+      message = ''
+      @workers.each do |command,worker_spec|
+        message = message + "#{command}: #{worker_spec[:desc]}\r\n"
+      end
+      message
     end
     
     def mucSetup client
@@ -77,12 +85,15 @@ module Deployable
       
       muc.add_message_callback { |msg|
         if @admins.include?(msg.from.resource)
+          if msg.body == 'list'
+            send_msg(msg.from.resource.to_s,listWorkers)
+          end
           begin
             stanza = msg.body
             atoms = stanza.split(' ')
             command = atoms.shift
             @logger.debug("calling #{command} : #{atoms.to_s}")
-            worker = @workers["#{command}"]
+            worker = @workers["#{command}"][:worker]
             worker.callback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
             worker.errback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
             worker.send(command, atoms)

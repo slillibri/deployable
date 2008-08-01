@@ -4,7 +4,6 @@ require 'eventmachine'
 require 'log4r'
 require 'deployable/worker'
 require 'yaml'
-require 'pp'
 
 include Jabber
 include Log4r
@@ -18,7 +17,9 @@ module Deployable
       begin
         conf = YAML.load(File.open(args[:config]))
         conf.each {|key,value|
-          self.send("#{key}=", value)
+          if self.respond_to?("#{key}=")
+            self.send("#{key}=", value)
+          end
         }
         @logger = Log4r::Logger.new "deploy"
         @logger.outputters = Log4r::FileOutputter.new("deploy", :filename => self.logfile, :trunc => false)
@@ -45,6 +46,7 @@ module Deployable
     def send_msg to, text
       message = Message.new(nil, text)
       message.type = :normal
+      @logger.debug YAML.dump(message)
       @muc.send(message,to)
     end
   
@@ -69,7 +71,7 @@ module Deployable
         self.send(:require, "deployable/#{worker_spec[:worker]}")
         w = eval("#{worker_spec[:worker].capitalize}.new")
         @workers["#{command}"] = {:worker => w, :desc => worker_spec[:desc]}
-      end      
+      end
     end
     
     def listWorkers

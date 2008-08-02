@@ -8,32 +8,10 @@ require 'yaml'
 include Jabber
 include Log4r
 module Deployable
-  class Core
+  class Runner < Deployable::Base
     ## These are are all autoloaded by the YAML config file
-    attr_accessor :botname, :password, :channel, :logfile, :loglevel
-    attr_accessor :logger, :admins, :debug, :muc, :host, :workers
-    
-    def initialize(args = Hash.new)
-      begin
-        conf = YAML.load(File.open(args[:config]))
-        conf.each {|key,value|
-          if self.respond_to?("#{key}=")
-            self.send("#{key}=", value)
-          end
-        }
-        @logger = Log4r::Logger.new "deploy"
-        @logger.outputters = Log4r::FileOutputter.new("deploy", :filename => self.logfile, :trunc => false)
-        @logger.trace = true
-        @logger.level = self.loglevel
-        if(@debug == true) 
-          Jabber.debug = true
-        end
-      rescue Exception => e
-        puts "There was an exception #{e}"
-        nil
-      end
-    end
-    
+    attr_accessor :admins, :workers
+        
     def run
       EM.run do
         client = clientSetup
@@ -43,29 +21,6 @@ module Deployable
       end
     end
 
-    def send_msg to, text
-      message = Message.new(nil, text)
-      message.type = :normal
-      @logger.debug YAML.dump(message)
-      @muc.send(message,to)
-    end
-  
-    def clientSetup
-      client = Client.new(JID.new(@botname))
-      client.connect(@host)
-      client.auth(@password)
-      pres = Presence.new
-      pres.priority = 5
-      client.send(pres)
-      
-      client.on_exception do |ex, stream, symb|
-        @logger.debug("Disconnected, #{ex}, #{symb}")
-        @logger.error("FAIL")
-        exit
-      end
-      client
-    end
-    
     def loadWorkers
       @workers.each do |command,worker_spec|
         self.send(:require, "deployable/#{worker_spec[:worker]}")

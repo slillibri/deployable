@@ -1,31 +1,34 @@
-require 'xmpp4r'
-require 'xmpp4r/muc'
-require 'eventmachine'
-require 'log4r'
 require 'deployable/worker'
-require 'yaml'
-
-include Jabber
-include Log4r
 module Deployable
   class Runner < Deployable::Base
     ## These are are all autoloaded by the YAML config file
     attr_accessor :admins, :workers
-        
+    
     def run
       EM.run do
         client = clientSetup
         loadWorkers
+        configResponder(client)
         @muc = self.mucSetup(client)
         @logger.debug("Spawn new MUC client")
       end
     end
 
+    def configResponder client
+      #add feature for each worker loaded
+      @workers.each do |command,worker_spec|
+        item = Discovery::Item.new
+        item.iname = "#{command}"
+        
+        @responder.add_feature("#{command} : #{worker_spec[:desc]}")
+        @responder.items << item
+      end
+    end
+    
     def loadWorkers
       @workers.each do |command,worker_spec|
+        @logger.debug "#{worker_spec[:worker]} : #{worker_spec[:worker].class}"
         self.send(:require, "deployable/#{worker_spec[:worker]}")
-        w = eval("#{worker_spec[:worker].capitalize}.new")
-        @workers["#{command}"] = {:worker => w, :desc => worker_spec[:desc]}
       end
     end
     
@@ -44,18 +47,25 @@ module Deployable
         if @admins.include?(msg.from.resource)
           if msg.body == 'list'
             send_msg(msg.from.resource.to_s,listWorkers)
-          end
-          begin
-            stanza = msg.body
-            atoms = stanza.split(' ')
-            command = atoms.shift
-            @logger.debug("calling #{command} : #{atoms.to_s}")
-            worker = @workers["#{command}"][:worker]
-            worker.callback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
-            worker.errback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
-            worker.send(command, atoms)
-          rescue
-            @logger.debug "Error calling #{command} #{$!}"
+          elsif msg.body == 'reload'
+            @workers.each do |command,worker_spec|
+              $".delete("deployable/#{worker_spec[:worker]}.rb")
+              self.send(:require, "deployable/#{worker_spec[:worker]}")
+            end
+          else
+            begin
+              stanza = msg.body
+              atoms = stanza.split("\n")
+            
+              command = atoms.shift
+              @logger.debug("calling #{command} : #{atoms.to_s}")
+              worker = eval("#{@workers[command.to_sym][:worker].capitalize}.new")
+              worker.callback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
+              worker.errback {|code| send_msg(msg.from.resource.to_s,"Failure #{code[:message]}")}
+              worker.send(command, atoms.join("\n"))
+            rescue
+              @logger.debug "Error calling #{command} #{$!}"
+            end
           end
         else
           @logger.debug "I don't take orders from you #{msg.from.resource}"

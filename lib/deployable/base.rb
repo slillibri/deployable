@@ -1,15 +1,17 @@
 require 'xmpp4r'
 require 'xmpp4r/muc'
+require 'xmpp4r/discovery'
 require 'eventmachine'
 require 'log4r'
 require 'yaml'
 
-include Jabber
-include Log4r
 
 module Deployable
   class Base
-    attr_accessor :channel, :botname, :password, :logger, :debug, :host, :muc
+    include Jabber
+    include Log4r
+
+    attr_accessor :channel, :botname, :password, :logger, :debug, :host, :muc, :roster, :responder
     
     def initialize args = Hash.new
       conf = YAML.load(File.open(args[:config]))
@@ -33,11 +35,11 @@ module Deployable
     
     ##Send an XMPP message
     def send_msg to, text
-      message = Message.new(nil, text)
-      message.type = :normal
-      @logger.debug YAML.dump(message)
+      message = Message.new(to, text)
       @muc.send(message,to)
     end 
+    
+    ##Setup the basic xmpp client
     def clientSetup
       client = Client.new(JID.new(@botname))
       client.connect(@host)
@@ -48,9 +50,9 @@ module Deployable
       
       client.on_exception do |ex, stream, symb|
         @logger.debug("Disconnected, #{ex}, #{symb}")
-        @logger.error("FAIL")
         exit
       end
+      @responder = Discovery::Responder.new(client)
       client
     end
   end

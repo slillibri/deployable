@@ -8,14 +8,9 @@ module Deployable
     include Log4r
     
     def initialize (*args)
-      @logger = Log4r::Logger.new "workerlog"
-      @logger.outputters = Log4r::FileOutputter.new("workerlog", :filename => 'worker.log', :trunc => false)
-      @logger.trace = true
-      @logger.level = DEBUG
     end
     
     def method_missing method
-      @logger.debug "No method #{method}"
       set_deferred_status :failed, {:message => 'No such task'}
     end
 
@@ -26,7 +21,6 @@ module Deployable
     
     def lift *args
       30.times do |i|
-        @logger.debug "Lifted #{i}"
         sleep 0.1
       end
       set_deferred_status :succeeded, {:message => 'Lift successful'}
@@ -36,7 +30,6 @@ module Deployable
       url = args.shift
 
       begin
-        @logger.debug "Starting to test #{url[0]}"
         res = Net::HTTP.start(url[0],80) {|http|
           http.read_timeout=30
           http.get("/")
@@ -48,7 +41,6 @@ module Deployable
         end
       rescue
         $@.each do |err|
-          @logger.warn "\t#{err}" if @logger.level <= WARN
         end
         set_deferred_status :failed, {:message => "Super fail! #{$!}"}
       end

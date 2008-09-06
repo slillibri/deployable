@@ -1,26 +1,79 @@
 require 'eventmachine'
-require 'log4r'
+require 'yaml'
+require 'ftools'
+require 'fileutils'
+require 'zip/zip'
 
 module Deployable
-  class IISDeploy
-    def initialize(*args)
-      @logger = Log4r::Logger.new "workerlog"
-      @logger.outputter = Log4r::FileOutputter.new("workerlog", :filename => "worker.log", :trunc => false)
-      @logger.level = DEBUG
-    end
+  class MissingSourceException < StandardError
+  end
+  
+  class Iisdeploy
+    include EM::Deferrable
     
-    def deploy *args
-      conf = args[0]
+    def deploy args
+      conf = YAML.load("#{args}")
+      systemErrors = Array.new()
+      
       begin
-        # Copy files located at conf[:source] to tmp
+        # Check that we have the source
+        unless File.exists?(conf[:source])
+          raise MissingSourceException.new('source directory missing')
+        end
+        unless File.exists?(conf[:tmp])
+          Dir.mkdir(conf[:tmp])
+        end
+        
         # Unpack?
-        # Remove conf[:self] from conf[:pool]
+        if File.extname(conf[:source]) == ".zip"
+          Zip::ZipFile.open(conf[:source]) do |zipfile|
+            Zip::ZipFile.foreach(conf[:source]) do |entry|
+              zipfile.extract(entry, "#{conf[:tmp]}/#{entry}")
+            end
+          end
+          #File.delete("#{conf[:source]}")
+        end
+                
+        # Rename conf[:dest] to conf[:dest_bak] (Remove existing backup)
+        if File.exists?("#{conf[:dest]}_bak")
+          FileUtils.rm_rf("#{conf[:dest]}_bak")
+        end
+        
+        File.move(conf[:dest], "#{conf[:dest]}_bak")
+        
         # Copy files from conf[:source] to conf[:dst]
+        Dir.mkdir(conf[:dest])
+        FileUtils.cp_r("#{conf[:tmp]}/.", conf[:dest])
+        
+        # Cleanup conf[:tmp] directory
+        FileUtils.rm_r("#{conf[:tmp]}/")
+        
         # Perform each conf[:system] action in order
-        # Add conf[:self] to conf[:pool]
-        set_deferred_status :succeeded {:message => "#{conf[:web]} deployed"}
-      rescue
-        set_deferred_status :failed {:message => "#{conf[:web]} failed to deploy"}
+        if conf[:system] && conf[:system].respond_to?(:each)
+          conf[:system].each do |action|
+            begin
+              unless system(action)
+                raise StandardError.new("#{action} failed")
+              end
+            rescue Exception => e
+              systemErrors.push(e)
+            end            
+          end
+        end
+        
+        if systemErrors.size > 0
+          errorString = "SystemErrors:\n"
+          systemErrors.each do |error|
+            errorString << "#{error}\n"
+          end
+          set_deferred_status :failed, {:message => errorString}
+          return
+        end
+        set_deferred_status :succeeded, {:message => "#{conf[:web]} deployed"}
+      rescue MissingSourceException => e
+        set_deferred_status :failed, {:message => "Missing source #{conf[:source]}"}
+      rescue Exception => e
+        set_deferred_status :failed, {:message => "#{conf[:web]} failed to deploy Exception => #{e} : #{$@[0]}"}
       end
     end
   end

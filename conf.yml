@@ -8,4 +8,4 @@
 :admins:
     - Scott Lillibridge
 :debug: true
-:workers: {fetch: {:worker: worker, :desc: "Fetch a URL using Net::HTTP"}, lift: {:worker: lifter, :desc: "Lift heavy things"}}
+:workers: {:fetch: {:worker: worker, :desc: "Fetch a URL using Net::HTTP"}, :lift: {:worker: lifter, :desc: "Lift heavy things"}, :deploy: {:worker: iisdeploy, :desc: "Deploy files to IIS"}}

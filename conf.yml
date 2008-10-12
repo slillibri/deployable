@@ -8,4 +8,15 @@
 :admins:
     - Scott Lillibridge
 :debug: true
-:workers: {:fetch: {:worker: worker, :desc: "Fetch a URL using Net::HTTP"}, :lift: {:worker: lifter, :desc: "Lift heavy things"}, :deploy: {:worker: iisdeploy, :desc: "Deploy files to IIS"}}
+:workers: 
+  :deploy: 
+    :worker: iisdeploy
+    :desc: Deploy IIS Files
+    :sites: 
+      - :path: d:\inetpub\community
+        :name: community
+      - :path: d:\inetpub\home
+        :name: home
+:disco_features: 
+  - :class: webserver
+  - :controller: iis

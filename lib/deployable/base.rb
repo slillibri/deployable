@@ -11,7 +11,7 @@ module Deployable
     include Jabber
     include Log4r
 
-    attr_accessor :channel, :botname, :password, :logger, :debug, :host, :muc, :roster, :responder
+    attr_accessor :channel, :botname, :password, :logger, :debug, :host, :muc, :roster, :client
     
     def initialize args = Hash.new
       conf = YAML.load(File.open(args[:config]))
@@ -41,19 +41,17 @@ module Deployable
     
     ##Setup the basic xmpp client
     def clientSetup
-      client = Client.new(JID.new(@botname))
-      client.connect(@host)
-      client.auth(@password)
+      @client = Client.new(JID.new(@botname))
+      @client.connect(@host)
+      @client.auth(@password)
       pres = Presence.new
       pres.priority = 5
-      client.send(pres)
+      @client.send(pres)
       
-      client.on_exception do |ex, stream, symb|
+      @client.on_exception do |ex, stream, symb|
         @logger.debug("Disconnected, #{ex}, #{symb}")
         exit
       end
-      @responder = Discovery::Responder.new(client)
-      client
     end
   end
 end

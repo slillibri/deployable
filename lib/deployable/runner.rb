@@ -2,27 +2,39 @@ require 'deployable/worker'
 module Deployable
   class Runner < Deployable::Base
     ## These are are all autoloaded by the YAML config file
-    attr_accessor :admins, :workers
+    attr_accessor :admins, :workers,:class,:controller,:config,:responders,:disco_features
     
     def run
       EM.run do
-        client = clientSetup
+        @responders = Array.new
+        clientSetup
         loadWorkers
-        configResponder(client)
-        @muc = self.mucSetup(client)
+        configResponder
+        @muc = self.mucSetup
         @logger.debug("Spawn new MUC client")
       end
     end
 
-    def configResponder client
-      #add feature for each worker loaded
-      @workers.each do |command,worker_spec|
-        item = Discovery::Item.new
-        item.iname = "#{command}"
-        
-        @responder.add_feature("#{command} : #{worker_spec[:desc]}")
-        @responder.items << item
+    def configResponder
+      base_responder = Discovery::Responder.new(@client)
+      @logger.debug("Features: #{@disco_features}")
+      @disco_features.each do |feature|
+        feature.each do |key,value|
+          base_responder.add_feature("#{key}:#{value}")
+        end
       end
+      @workers.each do |command,worker_spec|
+        ## Add an item for each command
+        item = Discovery::Item.new(@botname, "#{command}")
+        base_responder.items << item
+        responder = Discovery::Responder.new(@client, "#{command}")
+        ## Sites will be added as features to the command node (added above as an item to the top level)
+        @workers["#{command}".to_sym][:sites].each do |site|
+          responder.add_feature("#{command}:#{site[:name]}")
+        end
+        @responders << responder
+      end
+      @responders << base_responder
     end
     
     def loadWorkers
@@ -40,8 +52,8 @@ module Deployable
       message
     end
     
-    def mucSetup client
-      muc = MUC::MUCClient.new(client)
+    def mucSetup
+      muc = MUC::MUCClient.new(@client)
       
       muc.add_message_callback { |msg|
         if @admins.include?(msg.from.resource)

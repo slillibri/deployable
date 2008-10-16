@@ -23,9 +23,12 @@ class Controller < Deployable::Base
       EM.run do
         clientSetup
         @muc = mucSetup
+        EM::PeriodicTimer.new(10) do |poll|
+          get_room_participants
+        end
       end
     end
-    
+
     def add_feature key, feature
       if @registry.has_key?(key)
         @logger.debug "Adding #{feature}"
@@ -37,6 +40,7 @@ class Controller < Deployable::Base
     end
 
     def disco presence, type, attributes = nil
+      @logger.debug "Disco'ing #{presence.from.to_s}"
       iq = Iq.new_query(:get, "#{presence.from.to_s}")
       query = REXML::Element.new('query')
       query.add_namespace("http://jabber.org/protocol/disco\##{type}")
@@ -50,60 +54,92 @@ class Controller < Deployable::Base
       iq
     end
 
+    ##Holy sweet monkey refactor me
+    ##I suck
+    def get_room_participants
+      @logger.debug("Finding participants")
+      iq = Iq.new_query(:get, "#{@channel}")
+      query = REXML::Element.new('query')
+      query.add_namespace('http://jabber.org/protocol/muc#admin')
+      query.add_element('item', {'role'=>'participant'})
+      iq.query = query
+      @logger.debug("PARTICIPANTS: #{iq}")
+      @client.send_with_id(iq) {|reply|
+        @logger.debug("RESULT: #{reply.query.class}")
+          reply.query.items.each do |item|
+            unless @registry.has_key?(item.jid.bare.to_s)
+              jid = item.jid
+              @registry[jid.bare.to_s] = []
+              @logger.debug("Registering #{jid}")
+              iq = Iq.new_query(:get, "#{jid}")
+              query = REXML::Element.new('query')
+              query.add_namespace("http://jabber.org/protocol/disco\#items")     
+              iq.query = query         
+              @logger.debug("ITEM-DISCO: #{iq}")
+              @client.send_with_id(iq) {|reply2|
+                @logger.debug("REPLY2: #{reply2}")
+                reply2.query.items.each do |item|
+                  iq = Iq.new_query(:get, "#{jid}")
+                  query = REXML::Element.new('query')
+                  query.add_namespace('http://jabber.org/protocol/disco#info')
+                  query.add_attribute('node',"#{item.node}")
+                  iq.query = query
+                  @client.send_with_id(iq) {|reply3|
+                    reply3.query.features.each do |feature|
+                      @registry[jid.bare.to_s] << feature
+                      @logger.debug("#{feature}")
+                    end
+                  }
+                end
+              }
+            end                
+          end
+      }
+    end
+
+
     def register_runner presence
       ## Initiate service disco on new runner
-      ## Example stanza
-      #<iq from='test@conference.haruhi.local/Scott Lillibridge' type='get' to='bot@haruhi.local/deploy' id='aac7a' xml:lang='en'>
-      #<query xmlns='http://jabber.org/protocol/disco#info'/>
-      #</iq>
-      
       ## Poll Items for node based information
       ## For each node, poll for Item and Info
       ## Poll Info
-      unless @registry.has_key?(presence.from.to_s)
-        @registry[presence.from.to_s] = Array.new
-      end
 
       ## Discover workers
       iq = disco(presence, "items")
       @client.send(iq) do |reply|
-        if reply.type.to_s == 'result'
-          reply.each_element do |element|
-            if element.respond_to?(:items)
-              element.items.each do |item|
-                ## Refactor me later, please
-                @logger.debug("Item: #{item.iname}")
-                @logger.debug("disco'ing features")
-                iq = disco(presence, "info", {'node' => item.iname})
-                @logger.debug("IQ: #{pp iq}")
-                @client.send(iq) do |reply|
-                  if reply.type.to_s == 'result'
-                    reply.each_element do |element|
-                      if element.respond_to?(:features)
-                        element.features.each do |feature|
-                          @logger.debug "Feature: #{feature}"
-                          add_feature(reply.from.to_s, feature)
-                        end
-                      end
-                    end
-                  end
-                end
-              end
+        @logger.debug("Sent #{iq}")
+        get_elements(reply, presence)
+      end
+    end
+
+    def get_elements reply, presence
+      reply.each_element do |element|
+        @logger.debug("#{reply}\n#{presence}")
+        element.items.each do |item|
+          @logger.debug("getting info on item #{item}")
+          get_features(item, presence)
+        end
+      end
+    end
+    
+    def get_features item, presence
+      iq = disco(presence, "info", {'node' => item.iname})
+      @client.send(iq) do |reply|
+        reply.each_element do |element|
+          if element.respond_to?(:features)
+            element.features.each do |feature|
+              add_feature(reply.from.to_s, feature)
             end
           end
-        end        
+        end
       end
     end
 
     def mucSetup
       muc = MUC::MUCClient.new(@client)
-      ## Add new clients to the registry if they are unrecognized
-      muc.add_join_callback(100) {|presence|
-        unless  @registry.has_key?(presence.from)
-          register_runner(presence)
-        end        
-      }
+      ##need to do the presence callback at somepoint to kill the polling for new clients
       muc.add_message_callback(100) { |message|
+        @logger.debug("#{message}")
         agent = message.from
         ## Validate sender
         ## Parse message (systems, action, args, etc)

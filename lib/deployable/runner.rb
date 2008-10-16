@@ -25,10 +25,10 @@ module Deployable
       end
       @workers.each do |command,worker_spec|
         ## Add an item for each command
-        item = Discovery::Item.new(@botname, "#{command}")
+        item = Discovery::Item.new(@botname, "#{command}", "#{command}")
         base_responder.items << item
         responder = Discovery::Responder.new(@client, "#{command}")
-        ## Sites will be added as features to the command node (added above as an item to the top level)
+        ## Sites will be added as nodes to the command item (added above as an item to the top level)
         @workers["#{command}".to_sym][:sites].each do |site|
           responder.add_feature("#{command}:#{site[:name]}")
         end

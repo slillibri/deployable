@@ -25,7 +25,10 @@ module Deployable
       ##Setup the logger
       loggertype = self.class.to_s.downcase
       @logger = Log4r::Logger.new("#{loggertype}")
-      @logger.outputters = Log4r::FileOutputter.new("#{loggertype}", :filename => "#{conf[:logfile]}", :trunc => false)
+      @logger.trace = true
+      o = Log4r::FileOutputter.new("#{loggertype}", :filename => "#{conf[:logfile]}", :trunc => false)
+      o.formatter = Log4r::BasicFormatter
+      @logger.outputters = o
       @logger.level = conf[:loglevel] || DEBUG
       if (@debug == true)
         Jabber.debug = true

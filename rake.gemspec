@@ -7,11 +7,10 @@ SPEC = Gem::Specification.new do |s|
   s.platform     = Gem::Platform::RUBY
   s.summary      = "An XMPP distributed worker library"
   s.files        = ["lib/deployable/base.rb",
+  "lib/deployable/base.rb",
   "lib/deployable/controller.rb",
   "lib/deployable/iisdeploy.rb",
-  "lib/deployable/lifter.rb",
   "lib/deployable/runner.rb",
-  "lib/deployable/worker.rb",
   "lib/deployable.rb"]
   
 end

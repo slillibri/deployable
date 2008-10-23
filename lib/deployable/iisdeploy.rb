@@ -23,7 +23,7 @@ module Deployable
         unless File.exists?(conf[:tmp])
           Dir.mkdir(conf[:tmp])
         end
-        
+
         # Unpack?
         if File.extname(conf[:source]) == ".zip"
           Zip::ZipFile.open(conf[:source]) do |zipfile|

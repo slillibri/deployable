@@ -1,6 +1,5 @@
 require 'deployable/base'
 require 'deployable/runner'
-require 'deployable/worker'
 require 'deployable/controller'
 require 'log4r'
 

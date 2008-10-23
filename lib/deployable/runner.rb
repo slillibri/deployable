@@ -1,4 +1,3 @@
-require 'deployable/worker'
 module Deployable
   class Runner < Deployable::Base
     ## These are are all autoloaded by the YAML config file
@@ -68,7 +67,10 @@ module Deployable
             begin
               stanza = msg.body
               atoms = stanza.split("\n")
-            
+              ## Not sure I like this anymore. I am thinking just the command and no
+              ## or minimal config sent to the worker.
+              ## Makes the worker more specific, or have a config for the worker.
+              
               command = atoms.shift
               @logger.debug("calling #{command} : #{atoms.to_s}")
               worker = eval("#{@workers[command.to_sym][:worker].capitalize}.new")

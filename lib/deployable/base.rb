@@ -49,6 +49,7 @@ module Deployable
       @client.auth(@password)
       pres = Presence.new
       pres.priority = 5
+      pres.set_status('online')
       @client.send(pres)
       
       @client.on_exception do |ex, stream, symb|

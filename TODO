@@ -1,0 +1,4 @@
+Should workers have their own config or receive from the runner?
+Roster creation is in the base class, but are there any generic roster callbacks to add?
+Roster callbacks will have to be added before the wait_for_roster method I expect. 
+  -- Could add a cbs type functionality for that similar to xmpp4r?

@@ -1,6 +1,7 @@
 require 'xmpp4r'
 require 'xmpp4r/muc'
 require 'xmpp4r/discovery'
+require 'xmpp4r/roster'
 require 'eventmachine'
 require 'log4r'
 require 'yaml'
@@ -47,6 +48,8 @@ module Deployable
       @client = Client.new(JID.new(@botname))
       @client.connect(@host)
       @client.auth(@password)
+      @roster = Roster::Helper.new(@client)
+      @roster.wait_for_roster
       pres = Presence.new
       pres.priority = 5
       pres.set_status('online')

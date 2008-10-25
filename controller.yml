@@ -1,8 +1,0 @@
---- 
-:botname: controller@haruhi.local/Controller
-:host: haruhi.local
-:channel: test@conference.haruhi.local
-:logfile: test.log
-:password: password
-:loglevel: 1
-:debug: true

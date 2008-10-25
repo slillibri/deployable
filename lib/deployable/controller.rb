@@ -37,11 +37,13 @@ class Controller < Deployable::Base
       super
       @client.add_message_callback(100) {|message|
         agent = message.from
+        @logger.debug("Client processing message callback")
         if message.body =~ /registry/          
           str = StringIO.new
           PP.pp(@registry, str)
           str.rewind
           send_msg(agent.resource.to_s, str.read)
+          return true
         end        
       }
       @client.add_message_callback(100) {|message|
@@ -51,6 +53,7 @@ class Controller < Deployable::Base
           send_msg(agent.resource.to_s, 'Reloaded')          
         end
       }
+      
     end
 
     def iq_get args = Hash.new
@@ -96,16 +99,9 @@ class Controller < Deployable::Base
     def mucSetup
       muc = MUC::MUCClient.new(@client)
       ##need to do the presence callback at somepoint to kill the polling for new clients
-      muc.add_message_callback(100) { |message|
-        @logger.debug("#{message}")
+      muc.add_message_callback(99) { |message| 
         agent = message.from
-        ## Validate sender
-        ## Parse message (systems, action, args, etc)
-        ## (message will be a YAML structure)
-        ## Start the process        
-      }
-      muc.add_message_callback(100) { |message| 
-        agent = message.from
+        @logger.debug("Muc processing message callback")
         if message.body =~ /registry/          
           str = StringIO.new
           PP.pp(@registry, str)

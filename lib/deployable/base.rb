@@ -38,9 +38,10 @@ module Deployable
     end
     
     ##Send an XMPP message
-    def send_msg to, text
-      message = Message.new(to, text)
-      @muc.send(message,to)
+    def send_msg to, text, type = :normal
+      message = Message.new(to, text).set_type(type)
+      @logger.debug(message.to_s)
+      @client.send(message)
     end 
     
     ##Setup the basic xmpp client

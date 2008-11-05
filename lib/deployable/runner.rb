@@ -9,7 +9,6 @@ module Deployable
         clientSetup
         loadWorkers
         configResponder
-        @muc = self.mucSetup
         @logger.debug("Spawn new MUC client")
       end
     end

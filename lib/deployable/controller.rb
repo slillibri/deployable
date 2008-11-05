@@ -33,7 +33,7 @@ class Controller < Deployable::Base
         reply.query.items.each do |item|
           iq = iq_get(:recip => jid, :service => 'disco', :query => 'info')
           iq.query.add_attribute('node',"#{item.node}")
-          @client.sedn_with_id(iq) {|reply|
+          @client.send_with_id(iq) {|reply|
             reply.query.features.each do |feature|
               @registry[jid.bare.to_s] << feature
             end
@@ -44,10 +44,21 @@ class Controller < Deployable::Base
 
     def processRoster
       @roster.items.each do |jid,rosteritem|
+        ## This contains the resourceless jid in the roster
+        ## We need to query item first then get the jid from the
+        ## username item
         @logger.debug("Processing #{jid}")
         if rosteritem.online?
           @logger.debug("#{jid} is Online")
-          query(jid)
+          ## This is hacky and there has to be a better way to do it
+          iq = iq_get(:recip => jid, :service => 'disco', :query => 'items')
+          @client.send_with_id(iq) {|reply|
+            reply.query.elements.each do |element|
+              if element.attributes['name'] == jid.node
+                query(JID.new(element.attributes['jid']))
+              end
+            end
+          }
         else
           @logger.debug("#{jid} is not online")
         end
@@ -59,8 +70,8 @@ class Controller < Deployable::Base
       @client.add_message_callback(100) {|message|
         agent = message.from
         @logger.debug(agent.to_s)
-        @logger.debug("Client processing message callback")
-        if message.body =~ /registry/          
+        @logger.debug(" Client processing message callback")
+        if message.body =~ /registry/
           str = StringIO.new
           PP.pp(@registry, str)
           str.rewind
@@ -70,8 +81,8 @@ class Controller < Deployable::Base
       @client.add_message_callback(100) {|message|
         agent = message.from
         if message.body =~ /reload runner/
-          get_room_participants
-          send_msg(agent.resource.to_s, 'Reloaded')          
+          processRoster
+          send_msg(agent.to_s, 'Reloaded', :chat)
         end
       }
       @client.add_presence_callback(100) {|presence|

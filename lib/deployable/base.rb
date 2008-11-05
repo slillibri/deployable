@@ -53,6 +53,7 @@ module Deployable
       @roster.wait_for_roster
       pres = Presence.new
       pres.priority = 5
+      pres.set_type(:available)
       pres.set_status('online')
       @client.send(pres)
       

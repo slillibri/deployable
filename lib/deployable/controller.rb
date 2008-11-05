@@ -8,7 +8,7 @@ require 'pp'
 require 'stringio'
 
 module Deployable
-class Controller < Deployable::Base
+  class Controller < Deployable::Base
     include Jabber
     include Log4r
 
@@ -45,8 +45,9 @@ class Controller < Deployable::Base
     def processRoster
       @roster.items.each do |jid,rosteritem|
         ## This contains the resourceless jid in the roster
-        ## We need to query item first then get the jid from the
-        ## username item
+        ## We need to query #items first then get the jid from the
+        ## item where name == jid.node (the username part of the jid)
+        ## I need the resource to di the service disco on the bot
         @logger.debug("Processing #{jid}")
         if rosteritem.online?
           @logger.debug("#{jid} is Online")
@@ -88,69 +89,25 @@ class Controller < Deployable::Base
       @client.add_presence_callback(100) {|presence|
         ## Process online and offline presence announcements
         agent = presence.from
-        if presence.type == 'online'
-          query(agent)
-        elsif presence.type == 'offline'
-          @registry.delete(agent)
+        if @roster.find(agent)
+          @logger.debug("#{presence.type.to_s}")
+          unless agent == @botname
+            if presence.type.nil?
+              query(agent)
+            elsif presence.type == :unavailable
+              @registry.delete(agent.bare.to_s)
+            end
+          end
         end
       }
     end
 
-    def iq_get args = Hash.new
+    def iq_get(args = Hash.new)
       iq = Iq.new_query(:get, args[:recip])
       query = REXML::Element.new('query')
       query.add_namespace("http://jabber.org/protocol/#{args[:service]}\##{args[:query]}")
       iq.query = query
       iq
-    end
-
-    def get_room_participants
-      @logger.debug("Finding participants")
-      iq = iq_get(:recip => @channel, :service => 'muc', :query => 'admin')
-      iq.query.add_element('item', {'role'=>'participant'})
-      @logger.debug("PARTICIPANTS: #{iq}")
-      @client.send_with_id(iq) {|reply|
-        @logger.debug("RESULT: #{reply.query.class}")
-          reply.query.items.each do |item|
-            unless @registry.has_key?(item.jid.bare.to_s)
-              jid = item.jid
-              @registry[jid.bare.to_s] = []
-              @logger.debug("Registering #{jid}")
-              iq = iq_get(:recip => jid, :service => 'disco', :query => 'items')
-              @logger.debug("ITEM-DISCO: #{iq}")
-              @client.send_with_id(iq) {|reply2|
-                @logger.debug("REPLY2: #{reply2}")
-                reply2.query.items.each do |item|
-                  iq = iq_get(:recip => jid, :service => 'disco', :query => 'info')
-                  iq.query.add_attribute('node',"#{item.node}")
-                  @client.send_with_id(iq) {|reply3|
-                    reply3.query.features.each do |feature|
-                      @registry[jid.bare.to_s] << feature
-                      @logger.debug("#{feature}")
-                    end
-                  }
-                end
-              }
-            end                
-          end
-      }
-    end
-
-    def mucSetup
-      muc = MUC::MUCClient.new(@client)
-      ##need to do the presence callback at somepoint to kill the polling for new clients
-      muc.add_message_callback(99) { |message| 
-        agent = message.from
-        @logger.debug("Muc processing message callback")
-        if message.body =~ /registry/          
-          str = StringIO.new
-          PP.pp(@registry, str)
-          str.rewind
-          send_msg(agent.resource.to_s, str.read)
-        end
-      }
-      muc.join("#{@channel}/#{client.jid.resource}")            
-      muc
     end
   end
 end

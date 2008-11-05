@@ -50,10 +50,9 @@ module Deployable
       message
     end
     
-    def mucSetup
-      muc = MUC::MUCClient.new(@client)
-      
-      muc.add_message_callback { |msg|
+    def clientSetup
+      super
+      @client.add_message_callback { |msg|
         if @admins.include?(msg.from.resource)
           if msg.body == 'list'
             send_msg(msg.from.resource.to_s,listWorkers)
@@ -84,7 +83,6 @@ module Deployable
           @logger.debug "I don't take orders from you #{msg.from.resource}"
         end
       }
-      muc.join("#{@channel}/#{client.jid.resource}")
     end
   end
 end

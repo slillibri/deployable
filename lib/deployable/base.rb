@@ -8,6 +8,8 @@ require 'yaml'
 
 
 module Deployable
+  ## This is the base class for Deployable objects. It does basic initialization 
+  ## and setup of the XMPP client
   class Base
     include Jabber
     include Log4r
@@ -45,6 +47,7 @@ module Deployable
     end 
     
     ##Setup the basic xmpp client
+    ##
     def clientSetup
       @client = Client.new(JID.new(@botname))
       @client.connect(@host)

@@ -6,7 +6,7 @@ module Deployable
     include Jabber
     include Log4r
 
-    attr_accessor :registry, :client, :rules, :loadpath
+    attr_accessor :registry, :client, :rules, :loadpath, :mixins
     
     def initialize(args = Hash.new)
       super(args)
@@ -16,7 +16,7 @@ module Deployable
         @loadpath = File.expand_path(File.join(File.dirname(__FILE__), "../rules"))
       end
     end
-    
+        
     def run
       EM.run do
         clientSetup
@@ -70,33 +70,25 @@ module Deployable
       super
       @client.add_message_callback(100) {|message|
         agent = message.from
-        @logger.debug(agent.to_s)
-        @logger.debug(" Client processing message callback")
         if message.body =~ /registry/
           str = StringIO.new
           PP.pp(@registry, str)
           str.rewind
           send_msg(agent.to_s, str.read, message.type)
-        end        
-      }
-      @client.add_message_callback(100) {|message|
-        agent = message.from
-        if message.body =~ /reload runner/
+        elsif message.body =~ /reload runner/
           processRoster
           send_msg(agent.to_s, 'Reloaded', :chat)
-        end
-      }
-      @client.add_message_callback(100) {|message|
-        agent = message.from
-        atoms = message.body.split(" ")
-        command = atoms.shift
-        ## Scan @registry to see if a host has registered the command?
-        @registry.each do |host,commands|
-          if commands.include?(command)
-            deploy(command, atoms)
-            return
+        else
+          atoms = message.body.split("\n")
+          command = atoms.shift
+          ## Scan @registry to see if a host has registered the command?
+          @registry.each do |host,commands|
+            if commands.include?(command)
+              deploy(command, atoms)
+              return
+            end
           end
-        end
+        end        
       }
       @client.add_presence_callback(100) {|presence|
         ## Process online and offline presence announcements
@@ -121,54 +113,71 @@ module Deployable
       iq.query = query
       iq
     end
-    
-    def deploy(command, atoms)
-      hosts = []
-      ## Determine which hosts respond to this command
-      @registry.each do |host,commands|
-        if commands.include?(command)
-          hosts << host
-        end
+  end
+  
+  def deploy(command, atoms)
+    hosts = []
+    ## Determine which hosts respond to this command
+    @registry.each do |host,commands|
+      if commands.include?(command)
+        hosts << host
       end
-      ## Partition the hosts into 2 sets
-      hostsets = hosts.partition {|host| hosts.index(host) % 2 == 0}
-      hostsets.each do |hostset|
-        hostset.each do |host|
-          results = {}
-          ## Remove the host from the laodbalancer
-          remove_from_lb(host)
-          ## Send command to the runner object
-          results[host] = send_command(host, command, atoms)
-        end
-        ## Run post deployment tests
-        ## If more hosts failed then succedded, fail the entire deployment
-        host_results = results.partition {|res| res}
-        if host_results[0].size < host_results[1].size
-          ## SuperFail
-        end
-        ## Bring each successful deploy back online
-        results.each do |host,result|
-          add_to_lb(host) if result
-        end
+    end
+    ## Partition the hosts into 2 sets
+    hostsets = hosts.partition {|host| hosts.index(host) % 2 == 0}
+    hostsets.each do |hostset|
+      results = []
+      hostset.each do |host|
+        ## Generate the screen name listed in the lb from the host address
+        screen = host.match(/^(.*?)@/)[0].gsub('@','')
+        ## Remove the host from the laodbalancer
+        host_lb(screen, :down)
+        ## Send command to the runner object
+        results[screen] = send_command(host, command, atoms)
       end
-      ## Generate some sort of result message, logging, etc
+      ## Run post deployment tests
+      ## If more hosts failed then succedded, fail the entire deployment
+      host_results = results.partition {|res| res}
+      if host_results[0].size < host_results[1].size
+        @logger.err("More hosts failed then succedded in this deployment, canceling the rest")
+        return
+        ## SuperFail
+      end
+      ## Bring each successful deploy back online
+      results.each do |screen,result|
+        host_lb(screen, :up) if result
+      end
     end
-    private :deploy
-    
-    def remove_from_lb(host)
-      ## Net::SSH to f5 to run 'b node nodename down'
-    end
-    private :remove_from_lb
-    
-    def add_to_lb(host)
-      ## Opposite of above, should probably be a single command
-    end
-    private :add_to_lb
-    
-    def send_command(host,command,atoms)
-      ## Send the deploy command to the specified host
-      ## YAML command structure is initially on the table
-      
+    ## Generate some sort of result message, logging, etc
+  end
+  private :deploy
+  
+  def host_lb(host, action = nil)
+    if [:up,:down].include?(action)
+      Net::SSH.start('host','user') do |ssh|
+        ssh.exec("b node #{host} #{action.to_s}")
+      end
     end
   end
+  private :host_lb
+  
+  def send_command(host,command,atoms)
+    ## Send the deploy command to the specified host
+    ## YAML command structure is initially on the table
+    command = command.match(/^(.*?):/)[0].gsub(':','')
+    atoms.unshift(command)
+    message = Message.new(JID.new(host), atoms.join("\n"))
+    status = false
+    @client.send_with_id(message) {|reply|
+      response,message = reply.match(/^(.*?)\n(.*)/)
+      if response == 'OK'
+        status = true
+        @logger.info("#{host}: message")
+      else
+        @logger.err("#{host}: message")
+      end
+    }
+    status
+  end
+  private :send_command
 end

@@ -72,11 +72,11 @@ module Deployable
               command = atoms.shift
               @logger.debug("calling #{command} : #{atoms.to_s}")
               worker = eval("#{@workers[command.to_sym][:worker].capitalize}.new")
-              worker.callback {|code| send_msg(msg.from.resource.to_s,"#{code[:message]}")}
-              worker.errback {|code| send_msg(msg.from.resource.to_s,"Failure #{code[:message]}")}
+              worker.callback {|code| send_msg(msg.from.resource.to_s,"OK\n#{code[:message]}")}
+              worker.errback {|code| send_msg(msg.from.resource.to_s,"FAILURE\n#{code[:message]}")}
               worker.send(command, atoms.join("\n"))
             rescue
-              @logger.debug "Error calling #{command} #{$!}"
+              @logger.debug "FAILURE\nError calling #{command} #{$!}"
             end
           end
         else

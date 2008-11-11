@@ -11,6 +11,7 @@ SPEC = Gem::Specification.new do |s|
   "lib/deployable/controller.rb",
   "lib/deployable/iisdeploy.rb",
   "lib/deployable/runner.rb",
+  "lib/deployable/rostermember.rb",
   "lib/deployable.rb"]
   
 end

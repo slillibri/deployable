@@ -173,7 +173,7 @@ module Deployable
   def send_command(host,command,atoms)
     ## Send the deploy command to the specified host
     ## YAML command structure is initially on the table
-    command = command.match(/^(.*?):/)[0].gsub(':','')
+    command = command.match(/^(.*?):/)[1]
     atoms.unshift(command)
     message = Message.new(host.jid, atoms.join("\n"))
     status = false

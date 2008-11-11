@@ -26,7 +26,7 @@ module Deployable
 
     ## Do service discovery on *jid
     def query(jid)
-      @registry[jid.bare.to_s] = []
+      features = []
       iq = iq_get(:recip => jid, :service => 'disco', :query => 'items')
       @client.send_with_id(iq) {|reply|
         reply.query.items.each do |item|
@@ -35,11 +35,12 @@ module Deployable
           @client.send_with_id(iq) {|reply|
             reply.query.features.each do |feature|
               ## This is where the rules template will be loaded
-              @registry[jid.bare.to_s] << feature
+              features << feature
             end
           }
         end
-      }      
+      } 
+      features     
     end
 
     def processRoster
@@ -50,13 +51,14 @@ module Deployable
         ## I need the resource to di the service disco on the bot
         @logger.debug("Processing #{jid}")
         if rosteritem.online?
+          
           @logger.debug("#{jid} is Online")
           ## This is hacky and there has to be a better way to do it
           iq = iq_get(:recip => jid, :service => 'disco', :query => 'items')
           @client.send_with_id(iq) {|reply|
             reply.query.elements.each do |element|
               if element.attributes['name'] == jid.node
-                query(JID.new(element.attributes['jid']))
+                add_to_registry(JID.new(element.attributes['jid']))
               end
             end
           }
@@ -65,19 +67,28 @@ module Deployable
         end
       end
     end
-
+    
+    def add_to_registry(jid = nil)
+      if jid
+        features = query(jid)
+        @registry[jid.bare.to_s] = RosterMember.new(:jid => jid, :features => features)        
+      end
+    end
+    
     def clientSetup
       super
       @client.add_message_callback(100) {|message|
         agent = message.from
         if message.body =~ /registry/
-          str = StringIO.new
-          PP.pp(@registry, str)
-          str.rewind
-          send_msg(agent.to_s, str.read, message.type)
+          tmpl = "%s\n\tNode: %s\n\tJID: %s\n\tFeatures: %s\n"
+          str = ''
+          @registry.each do |host,member|
+            str = str + sprintf(tmpl, host, member.jid.node, member.jid, member.features.join(','))
+          end
+          send_msg(agent.to_s, str, message.type)
         elsif message.body =~ /reload runner/
           processRoster
-          send_msg(agent.to_s, 'Reloaded', :chat)
+          send_msg(agent.to_s, 'Reloaded', message.type)
         else
           atoms = message.body.split("\n")
           command = atoms.shift
@@ -97,7 +108,7 @@ module Deployable
           @logger.debug("#{presence.type.to_s}")
           unless agent == @botname
             if presence.type.nil?
-              query(agent)
+              add_to_registry(agent)
             elsif presence.type == :unavailable
               @registry.delete(agent.bare.to_s)
             end
@@ -118,8 +129,8 @@ module Deployable
   def deploy(command, atoms)
     hosts = []
     ## Determine which hosts respond to this command
-    @registry.each do |host,commands|
-      if commands.include?(command)
+    @registry.each do |host,member|
+      if member.features.include?(command)
         hosts << host
       end
     end
@@ -127,13 +138,11 @@ module Deployable
     hostsets = hosts.partition {|host| hosts.index(host) % 2 == 0}
     hostsets.each do |hostset|
       results = []
-      hostset.each do |host|
-        ## Generate the screen name listed in the lb from the host address
-        screen = host.match(/^(.*?)@/)[0].gsub('@','')
+      hostset.each do |host|        
         ## Remove the host from the laodbalancer
-        host_lb(screen, :down)
+        host_lb(@registry[host].node, :down)
         ## Send command to the runner object
-        results[screen] = send_command(host, command, atoms)
+        results[@registru[host].node] = send_command(host, command, atoms)
       end
       ## Run post deployment tests
       ## If more hosts failed then succedded, fail the entire deployment
@@ -166,7 +175,7 @@ module Deployable
     ## YAML command structure is initially on the table
     command = command.match(/^(.*?):/)[0].gsub(':','')
     atoms.unshift(command)
-    message = Message.new(JID.new(host), atoms.join("\n"))
+    message = Message.new(host.jid, atoms.join("\n"))
     status = false
     @client.send_with_id(message) {|reply|
       response,message = reply.match(/^(.*?)\n(.*)/)

@@ -81,7 +81,7 @@ module Deployable
         agent = message.from
         if message.body =~ /registry/
           tmpl = "%s\n\tNode: %s\n\tJID: %s\n\tFeatures: %s\n"
-          str = ''
+          str = "\n"
           @registry.each do |host,member|
             str = str + sprintf(tmpl, host, member.jid.node, member.jid, member.features.join(','))
           end
@@ -124,69 +124,69 @@ module Deployable
       iq.query = query
       iq
     end
-  end
-  
-  def deploy(command, atoms)
-    hosts = []
-    ## Determine which hosts respond to this command
-    @registry.each do |host,member|
-      if member.features.include?(command)
-        hosts << host
+
+    def deploy(command, atoms)
+      hosts = []
+      ## Determine which hosts respond to this command
+      @registry.each do |host,member|
+        if member.features.include?(command)
+          hosts << host
+        end
+      end
+      ## Partition the hosts into 2 sets
+      hostsets = hosts.partition {|host| hosts.index(host) % 2 == 0}
+      hostsets.each do |hostset|
+        results = []
+        hostset.each do |host|        
+          ## Remove the host from the laodbalancer
+          host_lb(@registry[host].node, :down)
+          ## Send command to the runner object
+          results[@registru[host].node] = send_command(host, command, atoms)
+        end
+        ## Run post deployment tests
+        ## If more hosts failed then succedded, fail the entire deployment
+        host_results = results.partition {|res| res}
+        if host_results[0].size < host_results[1].size
+          @logger.err("More hosts failed then succedded in this deployment, canceling the rest")
+          return
+          ## SuperFail
+        end
+        ## Bring each successful deploy back online
+        results.each do |screen,result|
+          host_lb(screen, :up) if result
+        end
+      end
+      ## Generate some sort of result message, logging, etc
+    end
+    private :deploy
+
+    def host_lb(host, action = nil)
+      if [:up,:down].include?(action)
+        Net::SSH.start('host','user') do |ssh|
+          ssh.exec("b node #{host} #{action.to_s}")
+        end
       end
     end
-    ## Partition the hosts into 2 sets
-    hostsets = hosts.partition {|host| hosts.index(host) % 2 == 0}
-    hostsets.each do |hostset|
-      results = []
-      hostset.each do |host|        
-        ## Remove the host from the laodbalancer
-        host_lb(@registry[host].node, :down)
-        ## Send command to the runner object
-        results[@registru[host].node] = send_command(host, command, atoms)
-      end
-      ## Run post deployment tests
-      ## If more hosts failed then succedded, fail the entire deployment
-      host_results = results.partition {|res| res}
-      if host_results[0].size < host_results[1].size
-        @logger.err("More hosts failed then succedded in this deployment, canceling the rest")
-        return
-        ## SuperFail
-      end
-      ## Bring each successful deploy back online
-      results.each do |screen,result|
-        host_lb(screen, :up) if result
-      end
+    private :host_lb
+
+    def send_command(host,command,atoms)
+      ## Send the deploy command to the specified host
+      ## YAML command structure is initially on the table
+      command = command.match(/^(.*?):/)[1]
+      atoms.unshift(command)
+      message = Message.new(host.jid, atoms.join("\n"))
+      status = false
+      @client.send_with_id(message) {|reply|
+        response,message = reply.match(/^(.*?)\n(.*)/)
+        if response == 'OK'
+          status = true
+          @logger.info("#{host}: message")
+        else
+          @logger.err("#{host}: message")
+        end
+      }
+      status
     end
-    ## Generate some sort of result message, logging, etc
+    private :send_command
   end
-  private :deploy
-  
-  def host_lb(host, action = nil)
-    if [:up,:down].include?(action)
-      Net::SSH.start('host','user') do |ssh|
-        ssh.exec("b node #{host} #{action.to_s}")
-      end
-    end
-  end
-  private :host_lb
-  
-  def send_command(host,command,atoms)
-    ## Send the deploy command to the specified host
-    ## YAML command structure is initially on the table
-    command = command.match(/^(.*?):/)[1]
-    atoms.unshift(command)
-    message = Message.new(host.jid, atoms.join("\n"))
-    status = false
-    @client.send_with_id(message) {|reply|
-      response,message = reply.match(/^(.*?)\n(.*)/)
-      if response == 'OK'
-        status = true
-        @logger.info("#{host}: message")
-      else
-        @logger.err("#{host}: message")
-      end
-    }
-    status
-  end
-  private :send_command
 end

@@ -35,13 +35,15 @@ module Deployable
       @logger.level = conf[:loglevel] || DEBUG
       if (@debug == true)
         Jabber.debug = true
+        self.send(:require, 'pp')
       end
       @logger.debug("Initialization complete")      
     end
     
     ##Send an XMPP message
-    def send_msg to, text, type = :normal
+    def send_msg to, text, type = :normal, id = nil
       message = Message.new(to, text).set_type(type)
+      message.id = id if id
       @logger.debug(message.to_s)
       @client.send(message)
     end 
@@ -53,12 +55,12 @@ module Deployable
       @client.connect(@host)
       @client.auth(@password)
       @roster = Roster::Helper.new(@client)
-      @roster.wait_for_roster
       pres = Presence.new
       pres.priority = 5
       pres.set_type(:available)
       pres.set_status('online')
       @client.send(pres)
+      @roster.wait_for_roster
       
       @client.on_exception do |ex, stream, symb|
         @logger.debug("Disconnected, #{ex}, #{symb}")

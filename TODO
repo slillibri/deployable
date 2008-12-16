@@ -4,3 +4,5 @@ Roster callbacks will have to be added before the wait_for_roster method I expec
   -- Could add a cbs type functionality for that similar to xmpp4r?
 Add authentication to the controller? This is only necessary if someone manipulates the roster directly in ejabberd
 Create wiki-worker
+Don't register any roster members that provide no features
+jruby support

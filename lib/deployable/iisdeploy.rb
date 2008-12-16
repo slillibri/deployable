@@ -26,11 +26,7 @@ module Deployable
 
         # Unpack?
         if File.extname(conf[:source]) == ".zip"
-          Zip::ZipFile.open(conf[:source]) do |zipfile|
-            Zip::ZipFile.foreach(conf[:source]) do |entry|
-              zipfile.extract(entry, "#{conf[:tmp]}/#{entry}")
-            end
-          end
+          unzip_file(conf[:source], conf[:tmp])
           #File.delete("#{conf[:source]}")
         end
                 
@@ -75,6 +71,20 @@ module Deployable
       rescue Exception => e
         set_deferred_status :failed, {:message => "#{conf[:web]} failed to deploy Exception => #{e} : #{$@[0]}"}
       end
+    end
+    
+    def unzip_file(source,tmp)
+      begin
+        Zip::ZipFile.open(source) do |zf|
+          zf.each do |e|
+            fpath = File.join(tmp,e.name)
+            FileUtils.mkdir_p(File.dirname(fpath))
+            zf.extract(e, fpath)
+          end
+        end
+      rescue Exception => e
+        raise e
+      end      
     end
   end
 end

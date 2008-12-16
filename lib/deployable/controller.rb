@@ -1,20 +1,19 @@
 require 'pp'
 require 'stringio'
+require 'net/ssh'
 
 module Deployable
   class Controller < Deployable::Base
     include Jabber
     include Log4r
 
-    attr_accessor :registry, :client, :rules, :loadpath, :mixins
+    attr_accessor :registry, :client, :rules, :lbhost, :lbuser, :rescode, :commandids
     
     def initialize(args = Hash.new)
       super(args)
       @registry = Hash.new
       @rules = Hash.new
-      unless @loadpath
-        @loadpath = File.expand_path(File.join(File.dirname(__FILE__), "../rules"))
-      end
+      @commandids = Array.new
     end
         
     def run
@@ -25,6 +24,7 @@ module Deployable
     end
 
     ## Do service discovery on *jid
+    ## Returns an array of features provided by the jid
     def query(jid)
       features = []
       iq = iq_get(:recip => jid, :service => 'disco', :query => 'items')
@@ -34,7 +34,6 @@ module Deployable
           iq.query.add_attribute('node',"#{item.node}")
           @client.send_with_id(iq) {|reply|
             reply.query.features.each do |feature|
-              ## This is where the rules template will be loaded
               features << feature
             end
           }
@@ -93,12 +92,13 @@ module Deployable
           atoms = message.body.split("\n")
           command = atoms.shift
           ## Scan @registry to see if a host has registered the command?
-          @registry.each do |host,commands|
-            if commands.include?(command)
+          @registry.each do |host,member|
+            if member.features.include?(command)
               deploy(command, atoms)
-              return
+              break
             end
           end
+          
         end        
       }
       @client.add_presence_callback(100) {|presence|
@@ -136,16 +136,57 @@ module Deployable
       ## Partition the hosts into 2 sets
       hostsets = hosts.partition {|host| hosts.index(host) % 2 == 0}
       hostsets.each do |hostset|
-        results = []
-        hostset.each do |host|        
+        next unless hostset.size > 0
+        
+        results = Hash.new
+        ## New thought. Loop hosts to generate messages then
+        ## Reloop to create a thread array and join each
+        messageset = Hash.new
+        hostthreads = Array.new
+        
+        hostset.each do |host|
+          jid = JID.new(host)
           ## Remove the host from the laodbalancer
-          host_lb(@registry[host].node, :down)
+          host_lb(jid.node, :down)
           ## Send command to the runner object
-          results[@registru[host].node] = send_command(host, command, atoms)
+          cmd = command.match(/^(.*?):/)[1]
+          atoms.unshift(cmd)
+          message = Message.new(host, atoms.join("\n"))
+          message.id = Jabber::IdGenerator.generate_id
+          messageset[host]          
         end
+        
+        
+        ## This spins off in a different thread, how can I deal?
+        ## I need to wait until I get a response before moving on
+        messageset.each do |host,message|
+          hostthreads << Thread.new do
+            @client.send(message) {|reply|
+              @logger.debug(reply.to_s)
+              response,message = reply.body.match(/^(.*?)\n(.*)/)[1,2]
+              pp reply
+              if response == 'OK'
+                results[jid.node] = true
+                @logger.info("#{host}: #{message}")
+                pp results if @debug              
+              else
+                results[jid.node] = false
+                @logger.err("#{host}: #{message}")
+                pp results if @debug
+              end
+              true
+            }
+            @logger.debug(Thread.status)
+          end
+        end
+        @logger.debug("Joining threads")
+        hostthreads.each {|thr| thr.join}
+        @logger.debug("Past thread code")
+
         ## Run post deployment tests
         ## If more hosts failed then succedded, fail the entire deployment
         host_results = results.partition {|res| res}
+        @logger.debug("Results: #{pp results}")
         if host_results[0].size < host_results[1].size
           @logger.err("More hosts failed then succedded in this deployment, canceling the rest")
           return
@@ -153,7 +194,12 @@ module Deployable
         end
         ## Bring each successful deploy back online
         results.each do |screen,result|
-          host_lb(screen, :up) if result
+          @logger.debug("#{screen} #{result}")
+          if result
+            host_lb(screen, :up)
+          else
+            @logger.debug("#{screen} failed")
+          end
         end
       end
       ## Generate some sort of result message, logging, etc
@@ -162,8 +208,14 @@ module Deployable
 
     def host_lb(host, action = nil)
       if [:up,:down].include?(action)
-        Net::SSH.start('host','user') do |ssh|
-          ssh.exec("b node #{host} #{action.to_s}")
+        begin
+          Net::SSH.start(@lbhost,@lbuser) do |ssh|
+            @logger.debug("b node #{host} #{action.to_s}")
+            output = ssh.exec!("b node #{host} #{action.to_s}")
+            @logger.debug("SSH: #{output}")
+          end
+        rescue
+          @logger.err("Unable to contact #{lbhost}")
         end
       end
     end
@@ -174,15 +226,15 @@ module Deployable
       ## YAML command structure is initially on the table
       command = command.match(/^(.*?):/)[1]
       atoms.unshift(command)
-      message = Message.new(host.jid, atoms.join("\n"))
+      message = Message.new(host, atoms.join("\n"))
       status = false
       @client.send_with_id(message) {|reply|
-        response,message = reply.match(/^(.*?)\n(.*)/)
+        response,message = reply.match(/^(.*?)\s(.*)/)[1,2]
         if response == 'OK'
           status = true
-          @logger.info("#{host}: message")
+          @logger.info("#{host}: #{message}")
         else
-          @logger.err("#{host}: message")
+          @logger.err("#{host}: #{message}")
         end
       }
       status

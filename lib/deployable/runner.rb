@@ -9,7 +9,6 @@ module Deployable
         clientSetup
         loadWorkers
         configResponder
-        @logger.debug("Spawn new MUC client")
       end
     end
 
@@ -72,11 +71,12 @@ module Deployable
               command = atoms.shift
               @logger.debug("calling #{command} : #{atoms.to_s}")
               worker = eval("#{@workers[command.to_sym][:worker].capitalize}.new")
-              worker.callback {|code| send_msg(msg.from.resource.to_s,"OK\n#{code[:message]}")}
-              worker.errback {|code| send_msg(msg.from.resource.to_s,"FAILURE\n#{code[:message]}")}
+              worker.callback {|code| send_msg(msg.from.to_s,"OK\n#{code[:message]}", msg.type, msg.id)}
+              worker.errback {|code| send_msg(msg.from.to_s,"FAILURE\n#{code[:message]}", msg.type, msg.id)}
               worker.send(command, atoms.join("\n"))
             rescue
               @logger.debug "FAILURE\nError calling #{command} #{$!}"
+              send_msg(msg.from.to_s,"FAILURE\nError calling #{command} #{$!}")
             end
           end
         else

@@ -1,7 +1,7 @@
 require 'rubygems'
 SPEC = Gem::Specification.new do |s|
   s.name         = "deployable"
-  s.version      = "0.5.0"
+  s.version      = "0.9"
   s.author       = "Scott Lillbridge"
   s.email        = "scott@thereisnoarizona.org"
   s.platform     = Gem::Platform::RUBY

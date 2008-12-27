@@ -26,10 +26,13 @@ module Deployable
         base_responder.items << item
         responder = Discovery::Responder.new(@client, "#{command}")
         ## Sites will be added as nodes to the command item (added above as an item to the top level)
-        @workers["#{command}".to_sym][:sites].each do |site|
-          responder.add_feature("#{command}:#{site[:name]}")
+        begin        
+          @workers["#{command}".to_sym][:sites].each do |site|
+            responder.add_feature("#{command}:#{site[:name]}")
+          end
+          @responders << responder
+        rescue Exception => e
         end
-        @responders << responder
       end
       @responders << base_responder
     end
@@ -52,9 +55,10 @@ module Deployable
     def clientSetup
       super
       @client.add_message_callback { |msg|
+        @logger.debug(msg.from.resource)
         if @admins.include?(msg.from.resource)
           if msg.body == 'list'
-            send_msg(msg.from.resource.to_s,listWorkers)
+            send_msg(msg.from.to_s,listWorkers,:chat)
           elsif msg.body == 'reload'
             @workers.each do |command,worker_spec|
               $".delete("deployable/#{worker_spec[:worker]}.rb")

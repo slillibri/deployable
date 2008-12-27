@@ -51,20 +51,24 @@ module Deployable
     ##Setup the basic xmpp client
     ##
     def clientSetup
-      @client = Client.new(JID.new(@botname))
-      @client.connect(@host)
-      @client.auth(@password)
-      @roster = Roster::Helper.new(@client)
-      pres = Presence.new
-      pres.priority = 5
-      pres.set_type(:available)
-      pres.set_status('online')
-      @client.send(pres)
-      @roster.wait_for_roster
-      
-      @client.on_exception do |ex, stream, symb|
-        @logger.debug("Disconnected, #{ex}, #{symb}")
-        exit
+      begin
+        @client = Client.new(JID.new(@botname))
+        @client.connect(@host)
+        @client.auth(@password)
+        @roster = Roster::Helper.new(@client)
+        pres = Presence.new
+        pres.priority = 5
+        pres.set_type(:available)
+        pres.set_status('online')
+        @client.send(pres)
+        @roster.wait_for_roster
+        
+        @client.on_exception do |ex, stream, symb|
+          @logger.debug("Disconnected, #{ex}, #{symb}")
+          exit
+        end
+      rescue Exception => e
+        @logger.debug("#{e}")
       end
     end
   end

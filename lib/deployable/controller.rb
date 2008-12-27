@@ -1,6 +1,7 @@
 require 'pp'
 require 'stringio'
 require 'net/ssh'
+require 'deployable/deploymachine'
 
 module Deployable
   class Controller < Deployable::Base
@@ -94,6 +95,7 @@ module Deployable
           ## Scan @registry to see if a host has registered the command?
           @registry.each do |host,member|
             if member.features.include?(command)
+              @logger.debug("Found client for #{command}")
               deploy(command, atoms)
               break
             end
@@ -152,43 +154,40 @@ module Deployable
           cmd = command.match(/^(.*?):/)[1]
           atoms.unshift(cmd)
           message = Message.new(host, atoms.join("\n"))
+          @logger.debug(message.to_s)
           message.id = Jabber::IdGenerator.generate_id
-          messageset[host]          
+          messageset[host] = message
         end
         
         
         ## This spins off in a different thread, how can I deal?
         ## I need to wait until I get a response before moving on
         messageset.each do |host,message|
+          @logger.debug("New thread for #{host}")
           hostthreads << Thread.new do
-            @client.send(message) {|reply|
-              @logger.debug(reply.to_s)
-              response,message = reply.body.match(/^(.*?)\n(.*)/)[1,2]
-              pp reply
-              if response == 'OK'
-                results[jid.node] = true
-                @logger.info("#{host}: #{message}")
-                pp results if @debug              
-              else
-                results[jid.node] = false
-                @logger.err("#{host}: #{message}")
-                pp results if @debug
-              end
-              true
-            }
-            @logger.debug(Thread.status)
+            machine = DeployMachine.new(:message => message, :stream => @client)
+            machine.run
+            until machine.done?
+              sleep(0.1)
+            end
+            
+            if machine.response?
+              results[machine.jid] = true
+              @logger.info("#{host}: #{machine.message}")
+            else
+              results[machine.jid] = false
+              @logger.error("#{host}: #{machine.message}")
+            end
           end
         end
-        @logger.debug("Joining threads")
         hostthreads.each {|thr| thr.join}
-        @logger.debug("Past thread code")
 
         ## Run post deployment tests
         ## If more hosts failed then succedded, fail the entire deployment
         host_results = results.partition {|res| res}
         @logger.debug("Results: #{pp results}")
-        if host_results[0].size < host_results[1].size
-          @logger.err("More hosts failed then succedded in this deployment, canceling the rest")
+        if host_results[0].size <= host_results[1].size
+          @logger.error("More hosts failed then succedded in this deployment, canceling the rest")
           return
           ## SuperFail
         end
@@ -207,6 +206,9 @@ module Deployable
     private :deploy
 
     def host_lb(host, action = nil)
+      return true
+
+=begin      
       if [:up,:down].include?(action)
         begin
           Net::SSH.start(@lbhost,@lbuser) do |ssh|
@@ -218,6 +220,7 @@ module Deployable
           @logger.err("Unable to contact #{lbhost}")
         end
       end
+=end
     end
     private :host_lb
 
